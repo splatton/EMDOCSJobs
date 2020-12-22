@@ -1,0 +1,133 @@
+---
+title: "EMDOCS Jobs"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+library(stringr)
+library(tidyr)
+library(knitr)
+jobs_data <- read.csv("EMjobs.csv")
+jobs_data[,'Date'] <- mdy(jobs_data[,'Date'])
+```
+
+## How is the market for an emergency physician? (Answer: Worse.)
+### By: Tom Belanger, MD
+  
+### Introduction
+
+When I last applied for jobs during my family's move to Texas - at the end of 2014 - my experience was wholly positive. I was actually offered every single job I applied for, except for one (which was then offered to me a month later). This mirrored my experience two years earlier when I was applying at the end of my residency - openings were everywhere and all a resident had to do was sit back and wait for the free steak dinner.  
+  
+Flash forward to the present and there appears to be a palpable difference in the market. Two often-cited factors are the use of non-physician practitioners as cheaper labor and consolidation of the EM market under private equity encouraging an overproduction of residents. The COVID-19 pandemic may only have exacerbated the problem.  
+  
+Before understanding the reasons, though, let's try to understand the magnitude of the problem. Our question, then: **how is the market for emergency physicians?**
+
+### Methods
+
+There's lots of data that a person can look at to understand a job market. Frankly, I'm not an expert in job markets. But I imagine this data might include surveys and advertising data and internal reports. I'd also imagine that this data is very hard to get and relatively difficult to standardize (which might make the question difficult to answer).  
+  
+However, for the data used in this report, I decided to focus on a rather unconventional data source: the EM DOCS JOBS Facebook page. This group was started in mid-2018 and has about 7200 members who use it as a venue to post jobs and ask for help in finding one. This page appealed to me as a data source for several reasons. First, it represents an organic and, thus, more honest data source. Second, the page functions as both a venue for employers and potential employees. Third, there is a longitudinal electronic log that is easily accessible.  
+  
+In order to analyze the posts on the group page, I read the post and personally classified it as either a job posting or a request for employment. There were many posts that were neither and so these were not included in the dataset. Some posts were difficult to classify, but as a general rule, if it seemed as though the poster was trying to recruit employers, it was classified as a request. The post was only classified as a job posting if somebody posted contact info for a job that paid, even if the poster was not the employer. This also meant that I counted job postings for ERs, urgent cares, and med-spas/sports events/speaking engagements/whatever all as jobs (even though they may not all be considered equal by prospective applicants).  
+  
+I am not proud to say that, in my excitement over this page as a data source, I read every single post on this page since its inception (from June 6, 2018 to December 14, 2020). It is a horribly depressing read, as you will see below.  
+
+### Results
+
+First, let's look at the job postings over life of the group.  
+  
+```{r}
+ggplot(filter(jobs_data, Type == 'P'), aes(x = Date)) + geom_histogram(binwidth = 20, position = "dodge", alpha = 0.7, fill = "navy") + ylab("Number of Posts") + ggtitle("Job Listings over Time")
+```
+  
+As you can see, job postings appear to show some seasonality with early fall and summer seeming to be most dense. Additionally, job postings do seem to be increasing over time.  
+  
+Next, let's take a look at requests for employment.  
+  
+```{r}
+ggplot(filter(jobs_data, Type == 'R'), aes(x = Date)) + geom_histogram(binwidth = 20, position = "dodge", alpha = 0.7, fill = "red") + ylab("Number of Posts") + ggtitle("Employment Requests over Time")
+```
+  
+There is some seasonality here, as well. Additionally, requests for employment seem to be increasing over time also.  
+  
+Now let's take these two histograms and transpose them to see how job listings compare to requests for employment over time.  
+  
+  
+
+```{r}
+ggplot(jobs_data, aes(x = Date, fill = Type)) + geom_histogram(binwidth = 20, alpha = 0.7, position = "identity") + scale_fill_manual(values = c("navy", "red"), name = "Post Type", labels = c("Listings", "Requests")) + ylab("Number of Posts") + ggtitle("Total EM DOCS JOBS Posts by Type")
+```
+  
+As you can see, job listings and requests seem to match up fairly nicely in mid-2018 through the first part of 2019, at which point a major change seems to occur. After mid-2019, growth in requests for employment seem to far outpace the growth in job listings.  
+  
+Let's view this another way. Below, I've calculated the percentage of all total posts that represent each post type by month.  
+  
+```{r}
+jobs_data <- mutate(jobs_data, Year = year(Date))
+jobs_data <- mutate(jobs_data, Month = month(Date))
+jobs_sum <- summarize(group_by(jobs_data, Year, Month), Listings = sum(Type == 'P')/n(), Requests = sum(Type =='R')/n())
+for (i in 1:nrow(jobs_sum)) {
+  temp_str <- str_c("1", jobs_sum[i, 'Month'], jobs_sum[i, 'Year'], sep = " ")
+  jobs_sum[i, 'Date'] <- dmy(temp_str)
+}
+jobs_sum <- select(jobs_sum, -Year)
+jobs_sum <- select(jobs_sum, -Month)
+jobs_sum <- pivot_longer(jobs_sum, !Date, names_to = "Type", values_to = "Percentage")
+jobs_sum <- filter(jobs_sum, Type != 'Year')
+ggplot(jobs_sum, aes(x = Date, y = Percentage, color = Type)) + geom_line(size = 2, alpha = 0.7) + scale_color_manual(values = c("navy", "red"), name = "Post Type", labels = c("Listings", "Requests")) + ggtitle("Proportional Posting Types over Time")
+```
+  
+This illustrates rather clearly that, while early on postings to this group were a mix of job listings and requests, now the page is about 90% requests for employment.  
+  
+It seems unlikely, but it is valid to ask if this could simply be statistical noise. The first method we will use to address this question is to rephrase the post counts as ratios of requests to listings. We will then attempt to fit a linear regression line that correlates this ratio to time.  
+  
+```{r}
+jobs_sum <- summarize(group_by(jobs_data, Year, Month), R.to.L = sum(Type == 'R')/(n()-sum(Type == 'R')))
+for (i in 1:nrow(jobs_sum)) {
+  temp_str <- str_c("1", jobs_sum[i, 'Month'], jobs_sum[i, 'Year'], sep = " ")
+  jobs_sum[i, 'Date'] <- dmy(temp_str)
+}
+ggplot(jobs_sum, aes(x = Date, y = R.to.L)) + geom_point(color = "purple", alpha = 0.4) + geom_smooth(color = "red", alpha = 0.8, method = "lm") + ggtitle("Ratio of Requests to Listings over Time") + ylab("Requests/Listings Ratio")
+ratio_model <- lm(R.to.L ~ Date, data = jobs_sum)
+summary(ratio_model)
+confint(ratio_model, 'Date')
+```
+  
+Not only does our t-test show statistical significance (indicating that, in the case that there is no correlation between time and the given ratio, there is an exceedingly low chance of finding the observed data), but our 95% CI shows that we expect the ratio of requests to listings to increase anywhere from 1.06 to 2.04 year over year.  
+  
+Finally, let's compare the observed data from the page's inception (we will use September through November of 2018) to the same monthly interval this year. Using resampling, we can see how likely it we would be to observe the data in 2020 if there were no difference between the two year periods.  
+  
+```{r}
+early_data <- filter(jobs_data, Year == 2018 & Month < 12 & Month > 8)
+late_data <- filter(jobs_data, Year == 2020 & Month < 12 & Month > 8)
+early_resample_vec <- vector()
+for (i in 1:10000) {
+  temp_sample <- sample(early_data$Type, size = nrow(late_data), replace = TRUE)
+  early_resample_vec <- c(early_resample_vec, sum(temp_sample == 'R')/length(temp_sample))
+}
+resample_frame <- data.frame(Percent.R = early_resample_vec)
+ggplot(resample_frame, aes(x = Percent.R)) + geom_histogram(fill = 'red', alpha = 0.7) + geom_vline(xintercept = sum(late_data$Type == 'R')/nrow(late_data), size = 2) + xlab("Percent Requests") + ggtitle("Resampling Distribution of Early Posts") + geom_text(aes(x = sum(late_data$Type == 'R')/nrow(late_data) - 0.01, y = 500, label = "2020 Data"), angle = 90)
+```
+  
+As you can see, the vertical line representing the percentage of requests in late 2020 does not even touch the resampling distribution. The odds of seeing the current distribution, if, in fact, this is simply statistical noise is `r 1-pnorm(sum(late_data$Type == 'R')/nrow(late_data), mean = mean(early_resample_vec), sd = sd(early_resample_vec))`.   
+  
+### Discussion
+  
+One important thing to note in this analysis is that membership in this group is not constant. As the number of members increases (as it has done over the years), one would expect that both the number of posts for job listings and requests should increase. This is why the relative composition of the two is more important.  
+  
+We can easily infer from this data that jobs for emergency physicians are becoming more relatively scarce. In fact, I believe this is the most likely scenario.  
+  
+There are, of course, other possible scenarios. This data may simply represent a change in the use of the page - more people are using the page to seek jobs than candidates. The data may also reflect a change in recruiting methods away from social media, though this seems unlikely.  
+  
+Finally, the data may be a reflection of job scarcity due to the COVID-19 pandemic, though this also seems unlikely as the shift toward more requests begins even before the months of the pandemic.  
+  
+Some analysis that I wish I'd done was a look at the quality of job listings. From my unscientific appraisal, the quality of job listings seemed to deteriorate over time, with employers being harder to contact, prices being lower, and true career-focused ER jobs being fewer and further between. I also wish that I'd looked at which requests for employment appeared to be successful and if there were any common themes in these. Perhaps another day.  
+  
+For now, though, I think this data will surprise nobody. It is my hope, however, that this data may inspire solutions.  
+  
+  
+***All code was written in R. The code and data may be found at [https://github.com/splatton/EMDOCSJobs](https://github.com/splatton/EMDOCSJobs).***  
